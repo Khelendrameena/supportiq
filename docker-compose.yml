@@ -1,0 +1,94 @@
+# One command:  docker compose up --build
+# Services:       api (Django)  |  worker (Celery)  |  db (Postgres+pgvector)
+#                 |  redis  |  frontend (nginx)
+#
+# First boot: the api container runs migrations, then starts uvicorn.
+# Open http://localhost:3000 -> register a workspace -> upload docs -> chat.
+name: supportiq
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: supportiq
+      POSTGRES_PASSWORD: supportiq
+      POSTGRES_DB: supportiq
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supportiq -d supportiq"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: >
+      sh -c "python manage.py migrate &&
+             uvicorn supportiq.asgi:application --host 0.0.0.0 --port 8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-compose-dev-secret-key}
+      DJANGO_DEBUG: "False"
+      DJANGO_ALLOWED_HOSTS: "*"
+      DATABASE_URL: postgres://supportiq:supportiq@db:5432/supportiq
+      REDIS_URL: redis://redis:6379/0
+      LLM_BACKEND: ${LLM_BACKEND:-fake}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-deterministic}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A supportiq worker --loglevel=info --concurrency=2
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-compose-dev-secret-key}
+      DATABASE_URL: postgres://supportiq:supportiq@db:5432/supportiq
+      REDIS_URL: redis://redis:6379/0
+      LLM_BACKEND: ${LLM_BACKEND:-fake}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-deterministic}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
