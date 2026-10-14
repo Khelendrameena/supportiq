@@ -1,0 +1,25 @@
+# Pinned for reproducible builds. Install with: pip install -r backend/requirements.txt
+Django==5.1.4
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1
+drf-spectacular==0.28.0
+celery[redis]==5.4.0
+redis==5.2.1
+pgvector==0.3.6
+psycopg[binary]==3.2.3
+pypdf==5.1.0
+python-json-logger==3.0.0
+opentelemetry-sdk==1.29.0
+opentelemetry-instrumentation-django==0.50b0
+opentelemetry-instrumentation-celery==0.50b0
+opentelemetry-exporter-otlp==1.29.0
+google-generativeai==0.8.4
+gunicorn==23.0.0
+uvicorn==0.34.0
+
+# Dev / test
+pytest==8.3.4
+pytest-django==4.9.0
+
+# Optional (NOT installed by default; enable via env flags, see README):
+# sentence-transformers  -> EMBEDDING_BACKEND=sentence-transformers, RERANKER_BACKEND=cross-encoder
