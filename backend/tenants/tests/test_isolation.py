@@ -28,6 +28,15 @@ class TestApplicationLayerIsolation:
         resp = client_a.get(f"/api/kb/knowledge-bases/{kb.id}/")
         assert resp.status_code == 404  # not 403: tenants must not learn ids exist
 
+    def test_create_kb_stamps_current_tenant(self, client_a, tenant_a):
+        resp = client_a.post(
+            "/api/kb/knowledge-bases/", {"name": "Via API"}, format="json"
+        )
+        assert resp.status_code == 201, resp.content
+        set_current_tenant(tenant_a)
+        kb = KnowledgeBase.objects.get(id=resp.json()["id"])
+        assert kb.tenant_id == tenant_a.id
+
     def test_manager_fails_closed_without_tenant(self, tenant_a):
         set_current_tenant(tenant_a)
         KnowledgeBase.objects.create(tenant=tenant_a, name="Acme KB")

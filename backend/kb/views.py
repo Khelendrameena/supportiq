@@ -17,6 +17,13 @@ class KnowledgeBaseViewSet(viewsets.ModelViewSet):
         # (A class-level queryset would freeze the import-time tenant.)
         return KnowledgeBase.objects.all().order_by("-created_at")
 
+    def perform_create(self, serializer):
+        # The tenant-aware manager filters reads but does not stamp writes;
+        # the view stamps the resolved tenant on every created row.
+        from tenants.models import get_current_tenant
+
+        serializer.save(tenant=get_current_tenant())
+
 
 class DocumentViewSet(
     mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
@@ -34,6 +41,11 @@ class DocumentViewSet(
         serializer = DocumentUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         doc, created = serializer.save()
+        if created:
+            # In eager mode (local dev) ingestion already ran inside .delay();
+            # refresh so the response reflects the real status, not the
+            # pre-ingestion in-memory state.
+            doc.refresh_from_db()
         return Response(
             DocumentSerializer(doc).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
