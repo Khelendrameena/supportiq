@@ -69,7 +69,8 @@ class DocumentUploadSerializer(serializers.Serializer):
             # Idempotent re-upload: identical content already ingested/queued.
             doc = Document.objects.get(kb=validated_data["kb"], content_hash=content_hash)
             return doc, False
-        # Queue background ingestion. In local dev (no Redis) Celery eager
-        # mode runs it synchronously inside this request.
-        ingest_document.delay(doc.id)
+        # Queue background ingestion. The tenant travels explicitly in the
+        # task args (JSON-safe): a worker has no request/thread-local, and
+        # Postgres RLS hides tenant rows until the session variable is armed.
+        ingest_document.delay(doc.id, tenant_id=str(tenant.id))
         return doc, True

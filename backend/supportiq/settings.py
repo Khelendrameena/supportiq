@@ -5,10 +5,33 @@ Defaults are chosen so `python manage.py runserver` works with zero setup
 (SQLite + in-process Celery eager mode + deterministic fake providers).
 """
 import os
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv() -> None:
+    """Load a sibling .env file (repo root) into os.environ, without
+    overriding variables the user already exported (explicit > file).
+
+    This is intentionally tiny (no python-dotenv dependency): only plain
+    KEY=VALUE lines are honored; comments and empty lines are skipped."""
+    dotenv_path = BASE_DIR.parent / ".env"
+    if not dotenv_path.is_file():
+        return
+    for line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv()
 
 
 def env(name: str, default: str = "") -> str:
@@ -116,7 +139,9 @@ else:
 # ------------------------------------------------------------------ celery
 CELERY_BROKER_URL = REDIS_URL or "memory://"
 CELERY_RESULT_BACKEND = REDIS_URL or "cache+memory://"
-CELERY_TASK_ALWAYS_EAGER = not bool(REDIS_URL)  # eager locally, real workers in compose
+CELERY_TASK_ALWAYS_EAGER = ("pytest" in sys.modules) or not bool(REDIS_URL)
+# ^ eager under pytest (hermetic tests: ingestion runs inline), eager locally
+# without Redis, real workers in compose.
 CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1

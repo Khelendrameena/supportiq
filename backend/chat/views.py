@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from kb.models import KnowledgeBase
-from tenants.models import get_current_tenant
+from tenants.models import clear_current_tenant, get_current_tenant, set_current_tenant
 
 from . import budgets
 from .models import Conversation, Message
@@ -41,6 +41,13 @@ class AskView(APIView):
         conversation_id = serializer.validated_data.get("conversation_id")
 
         def event_stream():
+            # This generator runs LAZILY -- the middleware has already
+            # returned (and cleared the tenant + RESET the RLS session
+            # variable) by the time the first chunk is consumed. Re-arm the
+            # tenant for this unit of work so ORM scoping and the Postgres
+            # RLS policy both see the right identity, then clear it when
+            # the stream ends.
+            set_current_tenant(tenant)
             try:
                 for event in stream_chat_events(tenant, request.user, kb, question, conversation_id):
                     yield f"data: {json.dumps(event)}\n\n"
@@ -48,6 +55,8 @@ class AskView(APIView):
                 yield f"data: {json.dumps({'type': 'error', 'code': 'rate_limited', 'retry_after': exc.retry_after})}\n\n"
             except budgets.BudgetExceeded as exc:
                 yield f"data: {json.dumps({'type': 'error', 'code': 'budget_exceeded', 'detail': str(exc)})}\n\n"
+            finally:
+                clear_current_tenant()
 
         response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"

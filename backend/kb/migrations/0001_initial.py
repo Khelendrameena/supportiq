@@ -35,6 +35,15 @@ class Migration(migrations.Migration):
     dependencies = [("tenants", "0001_initial")]
 
     operations = [
+        # The vector type is a Postgres extension; installing it here (and not
+        # via manual DBA step) means fresh databases -- including the test
+        # database pytest-django creates -- get it automatically. Guarded so
+        # SQLite migrations never see the raw SQL.
+        *(
+            [migrations.RunSQL("CREATE EXTENSION IF NOT EXISTS vector;", reverse_sql="")]
+            if settings.IS_POSTGRES
+            else []
+        ),
         migrations.CreateModel(
             name="KnowledgeBase",
             fields=[

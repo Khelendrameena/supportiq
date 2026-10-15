@@ -11,7 +11,6 @@ auth, if ever used, is already applied) and before anything that queries.
 """
 import logging
 
-from django.db import connection
 from django.http import JsonResponse
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, InvalidToken
@@ -34,12 +33,10 @@ class TenantMiddleware:
                 return early_response
             return self.get_response(request)
         finally:
+            # clear_current_tenant() also RESETs the Postgres session
+            # variable, so a pooled connection never carries one tenant's
+            # identity into the next request.
             clear_current_tenant()
-            # Reset the Postgres session variable so a pooled connection never
-            # carries one tenant's identity into the next request.
-            if connection.vendor == "postgresql":
-                with connection.cursor() as cur:
-                    cur.execute("RESET app.current_tenant")
 
     def _resolve_tenant(self, request):
         """Returns a JsonResponse to short-circuit, or None to continue."""
@@ -53,7 +50,6 @@ class TenantMiddleware:
             if session_user and session_user.is_authenticated and getattr(session_user, "tenant_id", None):
                 tenant = session_user.tenant
                 set_current_tenant(tenant)
-                self._arm_rls(tenant)
             return None
 
         tenant_id = token.get("tenant_id")
@@ -68,7 +64,6 @@ class TenantMiddleware:
 
         request.user = user  # DRF will re-authenticate identically in the view
         set_current_tenant(tenant)
-        self._arm_rls(tenant)
         logger.debug("tenant resolved", extra={"tenant_id": str(tenant.id)})
         return None
 
@@ -80,8 +75,3 @@ class TenantMiddleware:
         if result is None:
             return None, None
         return result
-
-    def _arm_rls(self, tenant):
-        if connection.vendor == "postgresql":
-            with connection.cursor() as cur:
-                cur.execute("SET app.current_tenant = %s", [str(tenant.id)])

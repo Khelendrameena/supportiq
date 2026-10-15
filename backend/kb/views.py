@@ -55,5 +55,7 @@ class DocumentViewSet(
     @action(detail=True, methods=["post"], url_path="reingest")
     def reingest(self, request, pk=None):
         doc = self.get_object()
-        ingest_document.delay(doc.id)
+        # Tenant travels explicitly: workers have no request context, and
+        # RLS hides tenant rows until the task arms the session variable.
+        ingest_document.delay(doc.id, tenant_id=str(doc.tenant_id))
         return Response({"status": "queued", "document_id": doc.id}, status=status.HTTP_202_ACCEPTED)

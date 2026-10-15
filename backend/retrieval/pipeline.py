@@ -61,7 +61,9 @@ def _chunk_embedding(chunk, dim: int):
     if chunk.embedding is None:
         return None
     if settings.IS_POSTGRES:
-        return list(chunk.embedding)
+        # pgvector returns numpy scalars (float32); cast to plain Python
+        # floats so downstream scores stay JSON-serializable and hashable.
+        return [float(x) for x in chunk.embedding]
     from kb.models import unpack_embedding
 
     return unpack_embedding(chunk.embedding, dim)

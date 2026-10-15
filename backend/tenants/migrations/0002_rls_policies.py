@@ -7,8 +7,14 @@ connections can't leak identity).
 Notes:
   * FORCE ROW LEVEL SECURITY: policies apply even to the table owner (the
     role Django connects as). Without FORCE, RLS would silently not apply.
-  * `current_setting('app.current_tenant', true)` returns NULL when unset;
-    NULL::uuid comparisons are never true, so the policy FAILS CLOSED.
+    (Note: database superusers bypass RLS entirely -- run the app as a
+    least-privilege role, not a superuser, or the DB layer is decorative.)
+  * `NULLIF(current_setting('app.current_tenant', true), '')::uuid`:
+    `current_setting(..., true)` returns NULL when the setting was never
+    touched, but Postgres `RESET` of a custom GUC leaves an *empty string*,
+    and `''::uuid` raises instead of comparing false. NULLIF normalizes
+    both to NULL, so the policy FAILS CLOSED (NULL comparisons are never
+    true) instead of erroring.
   * Identity tables (tenants_tenant, accounts_user) are intentionally NOT
     covered: they must be readable before a tenant is resolved (login).
     The middleware's user.tenant_id == token tenant check covers them.
@@ -33,8 +39,8 @@ BEGIN
         WHERE schemaname = 'public' AND tablename = '{table}' AND policyname = 'tenant_isolation'
     ) THEN
         EXECUTE 'CREATE POLICY tenant_isolation ON {table}
-                 USING (tenant_id = current_setting(''app.current_tenant'', true)::uuid)
-                 WITH CHECK (tenant_id = current_setting(''app.current_tenant'', true)::uuid)';
+                 USING (tenant_id = NULLIF(current_setting(''app.current_tenant'', true), '''')::uuid)
+                 WITH CHECK (tenant_id = NULLIF(current_setting(''app.current_tenant'', true), '''')::uuid)';
     END IF;
 END $$;
 """

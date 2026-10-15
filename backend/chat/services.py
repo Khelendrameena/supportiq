@@ -75,7 +75,7 @@ def stream_chat_events(tenant, user, kb, question: str, conversation_id=None):
     tokens_used = llm.estimate_tokens(text)
 
     citations = [asdict(Citation(index=i + 1, document_title=r.document_title,
-                                 chunk_ord=r.ord, score=round(r.score, 3)))
+                                 chunk_ord=r.ord, score=float(round(r.score, 3))))
                  for i, r in enumerate(ranked)]
     set_cached_answer(tenant.id, kb.id, question, {"text": text, "citations": citations})
     result = _finish(

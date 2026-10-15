@@ -21,7 +21,7 @@ from django.db import OperationalError, transaction
 
 from llm import get_embedding_provider
 from llm.base import batched
-from tenants.models import Tenant, set_current_tenant
+from tenants.models import Tenant, clear_current_tenant, get_current_tenant, set_current_tenant
 
 from .chunking import chunk_text
 from .models import Chunk, Document, pack_embedding
@@ -54,12 +54,34 @@ def compute_content_hash(raw: bytes) -> str:
     retry_kwargs={"max_retries": 3, "countdown": 10},
     retry_backoff=True,
 )
-def ingest_document(self, document_id: int) -> dict:
-    # Tasks run outside a request: no tenant in thread-local. Load the row
-    # unscoped and set the tenant explicitly so TenantAwareManager works.
-    doc = Document.all_objects.select_related("tenant", "kb").get(id=document_id)
-    set_current_tenant(doc.tenant)
+def ingest_document(self, document_id: int, tenant_id: str | None = None) -> dict:
+    # Tasks run outside a request: no tenant in thread-local. The tenant is
+    # passed explicitly (JSON-safe string) because Postgres RLS applies to
+    # EVERY query regardless of ORM manager -- the "unscoped" document load
+    # below would be invisible without the session variable armed first.
+    # (The identity tables aren't RLS-covered, so the Tenant lookup itself
+    # always works.)
+    if tenant_id is not None:
+        set_current_tenant(Tenant.objects.get(id=tenant_id))
+    # Save/restore the caller's tenant: in eager mode (tests) the task runs
+    # inline on the caller's thread, and on a real worker the DB connection
+    # is reused across tasks -- either way we must not leave another
+    # tenant's RLS identity behind when we finish.
+    previous_tenant = get_current_tenant()
+    if previous_tenant is None:
+        raise RuntimeError(
+            "ingest_document requires a tenant: pass tenant_id or set one "
+            "before calling (without it, RLS hides every tenant row)."
+        )
+    try:
+        doc = Document.all_objects.select_related("tenant", "kb").get(id=document_id)
+        return _ingest_guarded(self, doc)
+    finally:
+        set_current_tenant(previous_tenant)
 
+
+def _ingest_guarded(self, doc: Document) -> dict:
+    document_id = doc.id
     if doc.status == Document.Status.READY:
         logger.info("ingestion skipped: already ready", extra={"document_id": document_id})
         return {"status": "already_ready", "document_id": document_id}
