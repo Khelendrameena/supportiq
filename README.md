@@ -50,13 +50,42 @@ docker compose up --build
 Register a workspace, create a knowledge base, upload a PDF, and ask questions
 in the Inbox.
 
-**Option B — local (no Docker, SQLite + eager Celery):**
+**Option B — local services (no Docker, real Postgres + Redis):**
 ```bash
+# 1. Postgres 16 + pgvector extension, Redis running locally.
+#    Create the role/database once (as the postgres superuser):
+sudo -u postgres psql -c "CREATE USER supportiq WITH PASSWORD 'supportiq' CREATEDB;"
+sudo -u postgres psql -c "CREATE DATABASE supportiq OWNER supportiq;"
+#    The app's migrations install the vector extension automatically;
+#    the role needs no superuser grant for that (CREATE EXTENSION IF NOT
+#    EXISTS is a no-op once the extension exists). NOTE: keep the role a
+#    NON-superuser -- Postgres superusers bypass row-level security, which
+#    would silently disable the tenant-isolation DB layer (and its tests).
+
+# 2. Backend
+cp .env.example .env   # DATABASE_URL + REDIS_URL already point at localhost; set a real DJANGO_SECRET_KEY
 python -m venv .venv && source .venv/bin/activate
 pip install -r backend/requirements.txt
-cd backend && python manage.py migrate
-python manage.py runserver            # API on :8000
-cd ../frontend && npm install && npm run dev   # UI on :5173
+cd backend && python manage.py migrate   # installs pgvector + RLS policies
+python manage.py runserver               # API on :8000 (reads .env automatically)
+
+# 3. Celery worker (separate terminal, venv active, from backend/)
+celery -A supportiq worker --loglevel=info --concurrency=2
+
+# 4. Frontend (separate terminal)
+cd frontend && npm install && npm run dev   # UI on :5173
+```
+Then open http://localhost:5173, register a workspace, create a knowledge
+base, upload a doc (the worker ingests it in seconds), and ask questions in
+the Inbox. With `REDIS_URL` set, Celery runs for real (not eager); unset
+`REDIS_URL` in `.env` for the zero-dependency mode (SQLite + eager Celery +
+in-memory cache) — handy for quick experiments, but the RLS tests skip there.
+
+Smoke test (API only, no browser):
+```bash
+# register, create KB, upload, then ask -- see RUNBOOK.md for the curl sequence
+python manage.py benchmark_cache --tenant <slug> --kb <id> \
+  --question "What is the refund policy?"
 ```
 
 ## API overview
@@ -106,24 +135,32 @@ CI fails if the means regress below baselined thresholds. Wired into
 
 ## Benchmarks (measured, not invented)
 
-Semantic-cache latency, measured with the deterministic stub providers on
-SQLite via `python manage.py benchmark_cache`:
+Semantic-cache latency, measured with the deterministic stub providers
+against **real Postgres 16 + pgvector and Redis** via
+`python manage.py benchmark_cache` (measured 2026-10-15 on the dev VM;
+re-run on your own machine — numbers move with hardware):
 
-| question | cold (full pipeline) | warm (cache) |
-|---|---|---|
-| What is the refund policy? | 261 ms | 216 ms |
-| How do I reset my password? | 222 ms | 238 ms |
-| Which payment methods do you accept? | 285 ms | 221 ms |
+| question | cold (full pipeline) | warm (cache) | speedup |
+|---|---|---|---|
+| What is the refund policy? | 23.9 ms | 5.3 ms | 4.5x |
+| How do I reset my password? | 11.0 ms | 4.4 ms | 2.5x |
+| Which payment methods do you accept? | 8.4 ms | 8.9 ms | 0.9x |
 
-With stub providers the whole pipeline is already fast, so the cache shows a
-modest gain here. Its value grows with real LLM latency (seconds per answer),
-where a cache hit skips retrieval + generation entirely. Re-run it yourself:
+The third question isn't in the KB, so the system abstains and there's
+nothing worth caching — warm re-runs the pipeline (honest 0.9x). With stub
+providers the whole pipeline is already fast; the cache's value grows with
+real LLM latency (seconds per answer), where a hit skips retrieval +
+generation entirely. Re-run it yourself:
 
 ```bash
-# after seeding a tenant "acme" with KB id 1 (see CONTRIBUTING below)
-python manage.py benchmark_cache --tenant acme --kb 1 \
+# from backend/, with a seeded tenant + KB (see "Run without Docker" below)
+python manage.py benchmark_cache --tenant <slug> --kb <id> \
   --question "What is the refund policy?" --question "How do I reset my password?"
 ```
+
+Eval harness (`pytest evals/ -s`, same stack): **faithfulness 0.91,
+answer relevance 0.53, keyword recall 0.80** (mean over 14 golden Q/A;
+CI fails on regression below the baselined thresholds).
 
 ## Swapping in real providers
 
