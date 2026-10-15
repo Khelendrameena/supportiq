@@ -13,16 +13,21 @@ function useHashRoute() {
   return route;
 }
 
-function Nav({ me }) {
+function Nav({ me, route }) {
+  const isAdmin = route.startsWith('#/admin');
+  const tab = (active) =>
+    active ? 'text-white font-semibold' : 'text-slate-400 hover:text-sky-300';
   return (
-    <nav className="bg-slate-900 text-white px-6 py-3 flex items-center justify-between">
-      <a href="#/" className="font-bold text-lg">
+    <nav className="bg-slate-900 text-white px-4 sm:px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+      <a href="#/" className="font-bold text-lg shrink-0">
         Support<span className="text-sky-400">IQ</span>
       </a>
-      <div className="flex items-center gap-4 text-sm">
-        <a href="#/" className="hover:text-sky-300">Inbox</a>
-        <a href="#/admin" className="hover:text-sky-300">Knowledge Base</a>
-        <span className="text-slate-400">{me?.tenant?.name}</span>
+      <div className="flex items-center gap-3 sm:gap-5 text-sm">
+        <a href="#/" className={tab(!isAdmin)}>Inbox</a>
+        <a href="#/admin" className={tab(isAdmin)}>Knowledge Base</a>
+        <span className="text-slate-400 hidden sm:inline truncate max-w-[160px]" title={me?.tenant?.name}>
+          {me?.tenant?.name}
+        </span>
         <button
           onClick={() => { logout(); window.location.hash = '#/login'; }}
           className="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded"
@@ -38,12 +43,15 @@ function AuthPage() {
   const [mode, setMode] = useState('login'); // 'login' | 'register'
   const [form, setForm] = useState({ tenant_name: '', tenant_slug: '', email: '', password: '' });
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   async function submit(e) {
     e.preventDefault();
+    if (busy) return; // no double-submit
     setError('');
+    setBusy(true);
     try {
       if (mode === 'register') {
         const data = await api('/api/auth/register/', { method: 'POST', body: form });
@@ -58,14 +66,16 @@ function AuthPage() {
       window.location.hash = '#/';
     } catch (err) {
       setError(err.message);
+    } finally {
+      setBusy(false);
     }
   }
 
   const input = 'w-full border border-slate-300 rounded px-3 py-2 mb-3';
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <form onSubmit={submit} className="bg-white p-8 rounded-xl shadow w-96">
+    <div className="min-h-screen flex items-center justify-center px-4 bg-gradient-to-b from-slate-100 to-slate-200">
+      <form onSubmit={submit} className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-sm">
         <h1 className="text-2xl font-bold mb-1">
           Support<span className="text-sky-500">IQ</span>
         </h1>
@@ -75,14 +85,17 @@ function AuthPage() {
         {mode === 'register' && (
           <>
             <input className={input} placeholder="Company name" value={form.tenant_name} onChange={set('tenant_name')} required />
-            <input className={input} placeholder="Workspace slug (e.g. acme)" value={form.tenant_slug} onChange={set('tenant_slug')} required />
+            <input className={input} placeholder="Workspace slug (e.g. acme)" value={form.tenant_slug} onChange={set('tenant_slug')} required pattern="[a-z0-9-]+" title="Lowercase letters, numbers and hyphens only" />
           </>
         )}
         <input className={input} placeholder="Email" type="email" value={form.email} onChange={set('email')} required />
         <input className={input} placeholder="Password" type="password" value={form.password} onChange={set('password')} required />
-        {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
-        <button className="w-full bg-sky-600 hover:bg-sky-700 text-white rounded py-2 font-medium">
-          {mode === 'register' ? 'Create workspace' : 'Log in'}
+        {error && <p className="text-red-600 text-sm mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+        <button
+          disabled={busy}
+          className="w-full bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white rounded-lg py-2 font-medium transition"
+        >
+          {busy ? (mode === 'register' ? 'Creating workspace…' : 'Logging in…') : (mode === 'register' ? 'Create workspace' : 'Log in')}
         </button>
         <button
           type="button"
@@ -108,8 +121,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <Nav me={me} />
-      <main className="max-w-6xl mx-auto p-6">
+      <Nav me={me} route={route} />
+      <main className="max-w-6xl mx-auto p-4 sm:p-6">
         {route.startsWith('#/admin') ? <Admin /> : <Inbox />}
       </main>
     </div>
