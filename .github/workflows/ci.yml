@@ -39,8 +39,15 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: pip install -r backend/requirements.txt
-      - name: Enable pgvector extension
-        run: psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+      - name: Prepare database (least-privilege role + pgvector in template1)
+        # The image's POSTGRES_USER is a superuser, and superusers bypass
+        # row-level security entirely -- the RLS tests would pass/fail for
+        # the wrong reasons. Demote it and put the vector extension in
+        # template1 so pytest's test database inherits it (the kb migration
+        # runs CREATE EXTENSION IF NOT EXISTS as a harmless no-op there).
+        run: |
+          psql "$DATABASE_URL" -c "ALTER USER supportiq NOSUPERUSER;"
+          psql "$DATABASE_URL" -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector;"
       - name: Run backend tests (includes Postgres RLS tests)
         run: python -m pytest backend -q
 
