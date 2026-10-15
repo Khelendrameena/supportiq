@@ -153,7 +153,7 @@ real LLM latency (seconds per answer), where a hit skips retrieval +
 generation entirely. Re-run it yourself:
 
 ```bash
-# from backend/, with a seeded tenant + KB (see "Run without Docker" below)
+# from backend/, with a seeded tenant + KB (see "5-minute setup" above)
 python manage.py benchmark_cache --tenant <slug> --kb <id> \
   --question "What is the refund policy?" --question "How do I reset my password?"
 ```
