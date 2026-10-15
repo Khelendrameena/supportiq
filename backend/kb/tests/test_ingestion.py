@@ -47,7 +47,7 @@ class TestIngestion:
     def test_rerun_of_ready_document_is_noop(self, tenant_a, kb_a):
         doc, first = ingest_text(tenant_a, kb_a, "Handbook", SAMPLE_DOC)
         chunks_before = Chunk.objects.filter(document=doc).count()
-        second = ingest_document(doc.id)
+        second = ingest_document(doc.id, tenant_id=str(tenant_a.id))
         assert second["status"] == "already_ready"
         assert Chunk.objects.filter(document=doc).count() == chunks_before
 
@@ -61,7 +61,7 @@ class TestIngestion:
         doc.status = Document.Status.PENDING
         doc.save(update_fields=["status"])
         cache.add(f"ingest-lock:{doc.id}", "1", 600)
-        result = ingest_document(doc.id)
+        result = ingest_document(doc.id, tenant_id=str(tenant_a.id))
         assert result["status"] == "locked"
         cache.delete(f"ingest-lock:{doc.id}")
 
@@ -78,7 +78,7 @@ class TestIngestion:
             content_hash=compute_content_hash(raw),
         )
         with pytest.raises(ValueError, match="no extractable text"):
-            ingest_document(doc.id)
+            ingest_document(doc.id, tenant_id=str(tenant_a.id))
         doc.refresh_from_db()
         assert doc.status == Document.Status.FAILED
         assert "no extractable text" in doc.error

@@ -6,7 +6,7 @@ Layer 2 (database, Postgres only): RLS policies fail closed even for raw SQL.
 import pytest
 from django.db import connection
 from kb.models import KnowledgeBase
-from tenants.models import Tenant, get_current_tenant, set_current_tenant
+from tenants.models import Tenant, clear_current_tenant, get_current_tenant, set_current_tenant
 
 
 @pytest.mark.django_db
@@ -91,6 +91,11 @@ class TestRowLevelSecurity:
     def test_unset_tenant_sees_nothing(self, tenant_a):
         set_current_tenant(tenant_a)
         KnowledgeBase.objects.create(tenant=tenant_a, name="Acme KB")
+        # Simulate a raw-SQL client that never armed the RLS session variable
+        # (e.g. outside the middleware). clear_current_tenant() RESETs it --
+        # and Postgres RESET of a custom GUC leaves an *empty string*, the
+        # exact state the NULLIF guard in the policy must fail closed on.
+        clear_current_tenant()
         with connection.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM kb_knowledgebase")
             (count,) = cur.fetchone()

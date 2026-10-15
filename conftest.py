@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 from accounts.serializers import TenantTokenObtainPairSerializer
 from kb.models import Document, KnowledgeBase
 from kb.tasks import compute_content_hash, ingest_document
-from tenants.models import Tenant, set_current_tenant
+from tenants.models import Tenant, clear_current_tenant, set_current_tenant
 
 SAMPLE_DOC = """Acme Cloud Support Handbook
 
@@ -31,6 +31,16 @@ def _clear_cache():
     cache.clear()
     yield
     cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clear_tenant():
+    # Thread-local tenant survives across tests in one thread; DB-level
+    # RLS identity is rolled back with the test transaction, but reset the
+    # ORM layer explicitly so no test inherits another's tenant.
+    clear_current_tenant()
+    yield
+    clear_current_tenant()
 
 
 @pytest.fixture
@@ -97,7 +107,7 @@ def ingest_text(tenant, kb, title, text, filename="doc.txt"):
         file=ContentFile(raw, name=filename),
         content_hash=compute_content_hash(raw),
     )
-    result = ingest_document(doc.id)  # runs inline; eager mode anyway
+    result = ingest_document(doc.id, tenant_id=str(tenant.id))  # runs inline; eager mode anyway
     doc.refresh_from_db()
     assert doc.status == Document.Status.READY, doc.error
     return doc, result
