@@ -72,7 +72,6 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    "supportiq.middleware.cors_middleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
