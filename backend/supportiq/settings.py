@@ -62,7 +62,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt",
     "drf_spectacular",
@@ -73,7 +72,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",
+    "supportiq.middleware.cors_middleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -231,13 +230,5 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 20 MB knowledge-base uploads
 
-# CORS - allow Vercel frontend
-CORS_ALLOWED_ORIGINS = [
-    "https://supportiq-client.vercel.app",
-]
-CORS_ALLOW_ALL_ORIGINS = False
-# Allow preview deployments too
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://supportiq-client-.*\.vercel\.app$",
-]
-CORS_ALLOW_CREDENTIALS = True
+# CORS - custom middleware (no extra dependency)
+# Allows supportiq-client.vercel.app and all its preview deployments
