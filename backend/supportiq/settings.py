@@ -229,5 +229,4 @@ MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 20 MB knowledge-base uploads
 
-# CORS - custom middleware (no extra dependency)
 # Allows supportiq-client.vercel.app and all its preview deployments
